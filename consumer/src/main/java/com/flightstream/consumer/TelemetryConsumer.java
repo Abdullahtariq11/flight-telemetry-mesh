@@ -10,12 +10,14 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 public class TelemetryConsumer {
     private final TelemetryRepository telemetryRepository;
     private final ObjectMapper objectMapper= new ObjectMapper();
+    private final SafetyAlertEngine safetyAlertEngine;
 
 
 
-    public TelemetryConsumer(TelemetryRepository telemetryRepository){
+    public TelemetryConsumer(TelemetryRepository telemetryRepository, SafetyAlertEngine safetyAlertEngine){
         this.telemetryRepository=telemetryRepository;
         objectMapper.registerModule(new JavaTimeModule());
+        this.safetyAlertEngine=safetyAlertEngine;
 
     }
 
@@ -23,6 +25,7 @@ public class TelemetryConsumer {
     public void printMessage(String message) throws JsonProcessingException {
         TelemetryRecord record=objectMapper.readValue(message, TelemetryRecord.class);
         telemetryRepository.save(record);
+        safetyAlertEngine.evaluate(record);
         System.out.println(record.getFlightId());
     }
 
