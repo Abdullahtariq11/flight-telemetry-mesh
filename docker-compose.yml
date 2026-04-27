@@ -27,3 +27,9 @@ services:
         POSTGRES_DB: flightstream
         POSTGRES_USER: admin
         POSTGRES_PASSWORD: password
+
+  redis:
+    image: redis:8.6.2
+    container_name: redis
+    ports:
+    - "6379:6379"

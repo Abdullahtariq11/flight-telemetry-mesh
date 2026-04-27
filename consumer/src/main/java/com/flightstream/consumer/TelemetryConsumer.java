@@ -11,13 +11,16 @@ public class TelemetryConsumer {
     private final TelemetryRepository telemetryRepository;
     private final ObjectMapper objectMapper= new ObjectMapper();
     private final SafetyAlertEngine safetyAlertEngine;
+    private final HeartbeatService heartbeatService;
 
 
 
-    public TelemetryConsumer(TelemetryRepository telemetryRepository, SafetyAlertEngine safetyAlertEngine){
+    public TelemetryConsumer(TelemetryRepository telemetryRepository, SafetyAlertEngine safetyAlertEngine,
+    HeartbeatService heartbeatService){
         this.telemetryRepository=telemetryRepository;
         objectMapper.registerModule(new JavaTimeModule());
         this.safetyAlertEngine=safetyAlertEngine;
+        this.heartbeatService=heartbeatService;
 
     }
 
@@ -26,6 +29,7 @@ public class TelemetryConsumer {
         TelemetryRecord record=objectMapper.readValue(message, TelemetryRecord.class);
         telemetryRepository.save(record);
         safetyAlertEngine.evaluate(record);
+        heartbeatService.recordHeartbeat(record.getFlightId());
         System.out.println(record.getFlightId());
     }
 
