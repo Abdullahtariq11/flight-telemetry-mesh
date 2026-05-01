@@ -49,6 +49,11 @@
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.opensky</groupId>
+            <artifactId>opensky-api</artifactId>
+            <version>1.3.0</version>
+        </dependency>
     </dependencies>
 
     <build>
