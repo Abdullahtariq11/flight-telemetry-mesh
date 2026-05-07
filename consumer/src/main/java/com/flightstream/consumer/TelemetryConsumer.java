@@ -6,6 +6,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
+import java.io.IOException;
+
 @Service
 public class TelemetryConsumer {
     private final TelemetryRepository telemetryRepository;
@@ -25,7 +27,7 @@ public class TelemetryConsumer {
     }
 
     @KafkaListener(topics = "flight-telemetry", groupId = "flightstream-group")
-    public void printMessage(String message) throws JsonProcessingException {
+    public void printMessage(String message) throws IOException {
         TelemetryRecord record=objectMapper.readValue(message, TelemetryRecord.class);
         telemetryRepository.save(record);
         safetyAlertEngine.evaluate(record);
