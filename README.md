@@ -1,6 +1,6 @@
 # ✈️ FlightStream — Distributed Telemetry Mesh
 
-A high-concurrency, event-driven backend built to simulate and monitor real-time aircraft telemetry. This project demonstrates enterprise-grade data ingestion, stream processing, and time-series storage across a fully dockerized microservices architecture.
+A high-concurrency, event-driven backend built to simulate and monitor real-time aircraft telemetry. This project demonstrates enterprise-grade data ingestion, stream processing, time-series storage, and real-time alerting across a fully dockerized microservices architecture.
 
 ---
 
@@ -11,7 +11,7 @@ A high-concurrency, event-driven backend built to simulate and monitor real-time
 3. [Tech Stack & Why](#3-tech-stack--why)
 4. [Local Setup](#4-local-setup)
 5. [Load Test Results](#5-load-test-results)
-6. [Architectural Decision Records](#6-architectural-decision-records-adrs)
+6. [Architectural Decision Records](#6-architectural-decision-records)
 7. [What I Learned](#7-what-i-learned)
 8. [Bugs & How I Fixed Them](#8-bugs--how-i-fixed-them)
 9. [Future Improvements](#9-future-improvements)
@@ -27,6 +27,7 @@ Build a resilient distributed system capable of handling high-velocity telemetry
 - **Modern Java Concurrency** — leverage Java 21 Virtual Threads for scalability
 - **Silent Flight Detection** — identify aircraft that lose connectivity
 - **Live Data** — process real aircraft telemetry from the OpenSky Network API
+- **Real-Time Dashboard** — WebSocket-powered browser dashboard showing live alerts and active flights
 
 ### Success Criteria
 
@@ -37,38 +38,37 @@ Build a resilient distributed system capable of handling high-velocity telemetry
 | Scalability | 1,000 concurrent flight streams | ✅ Stable at 1,000 streams |
 | Silent Detection | Connection lost alert after 30s | ✅ Redis TTL working |
 | Live Aircraft Data | Real flights from OpenSky API | ✅ 5,000+ global aircraft processed |
+| WebSocket Dashboard | Browser receives alerts in real-time | ✅ Live dashboard at localhost:8082/alerts.html |
 
 ---
 
 ## 2. System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                      FlightStream System                         │
-│                                                                  │
-│  ┌─────────────────┐     ┌──────────────┐     ┌─────────────┐   │
-│  │  Java Producer  │────▶│              │────▶│             │   │
-│  │  (1000 Virtual  │JSON │    Kafka     │     │  Spring     │   │
-│  │   Threads)      │     │   Broker     │     │  Boot       │   │
-│  └─────────────────┘     │   :9092      │     │  Consumer   │   │
-│                           │              │     │             │   │
-│  ┌─────────────────┐     │              │     └──────┬──────┘   │
-│  │ OpenSky Producer│────▶│              │            │          │
-│  │  (Live Aircraft │     └──────────────┘            │          │
-│  │   via OAuth2)   │                      ┌──────────┤          │
-│  └─────────────────┘                      │          │          │
-│                               ┌───────────▼──┐  ┌────▼───────┐ │
-│                               │  TimescaleDB │  │  Safety    │ │
-│                               │  (pg16:5434) │  │  Alert     │ │
-│                               └──────────────┘  │  Engine    │ │
-│                                                  └─────┬──────┘ │
-│                                                        │         │
-│                                               ┌────────▼──────┐ │
-│                                               │     Redis     │ │
-│                                               │  Heartbeat    │ │
-│                                               │ Monitor :6379 │ │
-│                                               └───────────────┘ │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        FlightStream System                           │
+│                                                                      │
+│  ┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐   │
+│  │  Java Producer  │────▶│              │────▶│                 │   │
+│  │  (1000 Virtual  │JSON │    Kafka     │     │  Spring Boot    │   │
+│  │   Threads)      │     │   Broker     │     │  Consumer       │   │
+│  └─────────────────┘     │   :9092      │     │                 │   │
+│                           │              │     └────────┬────────┘   │
+│  ┌─────────────────┐     │              │              │            │
+│  │ OpenSky Producer│────▶│              │    ┌─────────┼─────────┐  │
+│  │  (Live Aircraft │     └──────────────┘    │         │         │  │
+│  │   via OAuth2)   │                         ▼         ▼         ▼  │
+│  └─────────────────┘                   TimescaleDB  Safety    Redis  │
+│                                         (pg16:5434)  Alert   Heartbt │
+│                                                      Engine  Monitor │
+│                                                         │            │
+│                                                         ▼            │
+│                                                    WebSocket         │
+│                                                    :8082/alerts      │
+│                                                         │            │
+│                                                         ▼            │
+│                                                   Browser Dashboard  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
@@ -85,6 +85,8 @@ Build a resilient distributed system capable of handling high-velocity telemetry
 
 **Redis Heartbeat Monitor** sets a 35-second TTL key per flight on every message. A `@Scheduled` job checks every 10 seconds for expired keys — triggering a `CONNECTION LOST` alert for silent aircraft.
 
+**WebSocket Dashboard** — every alert is pushed to all connected browsers in real-time via a persistent WebSocket connection. The dashboard shows active flights, alert history, live stats, and auto-reconnects on disconnect.
+
 ---
 
 ## 3. Tech Stack & Why
@@ -96,6 +98,7 @@ Build a resilient distributed system capable of handling high-velocity telemetry
 | **Java 21 Virtual Threads** | Concurrency model | 1,000 threads at near-zero memory cost vs ~1MB per platform thread |
 | **TimescaleDB (pg16)** | Time-series storage | Auto-partitions by timestamp (Hypertable), optimized for append-heavy workloads |
 | **Redis 8** | Heartbeat state | Sub-millisecond TTL operations — far faster than querying TimescaleDB |
+| **WebSocket** | Real-time browser push | Persistent connection — alerts pushed to browser without polling |
 | **OpenSky Network API** | Live flight data | Real aircraft telemetry via OAuth2 — 5,000+ global aircraft |
 | **Docker Compose** | Infrastructure | Reproducible local environment for all services |
 | **Jackson** | JSON parsing | Industry-standard Java JSON library |
@@ -130,6 +133,8 @@ cd consumer
 ./mvnw spring-boot:run
 ```
 
+Consumer runs on port `8082`. Dashboard available at `http://localhost:8082/alerts.html`.
+
 ### Step 3a — Run Simulated Producer (1,000 Virtual Threads)
 
 ```bash
@@ -154,7 +159,17 @@ cd opensky-producer
 ./mvnw spring-boot:run
 ```
 
-### Step 4 — Verify
+### Step 4 — Open the Dashboard
+
+Navigate to:
+
+```
+http://localhost:8082/alerts.html
+```
+
+The dashboard shows live active flights, real-time safety alerts, message counters, uptime, and a scrolling alert ticker.
+
+### Step 5 — Verify Database
 
 ```bash
 docker exec -it timescaledb psql -U admin -d flightstream
@@ -172,13 +187,14 @@ SELECT flight_id, altitude, latitude, longitude, timestamp FROM telemetry ORDER 
 | Records persisted to TimescaleDB | 29,233+ |
 | Consumer errors | 0 |
 | Live aircraft processed (OpenSky) | 5,000+ globally |
-| Rapid descent alerts | Firing in real-time |
+| Rapid descent alerts | Firing in real-time via WebSocket |
 | Silent flight detection | TTL expiry confirmed at 35s |
+| WebSocket clients | Multiple browsers supported simultaneously |
 | Infrastructure stability | Fully stable, no restarts required |
 
 ---
 
-## 6. Architectural Decision Records (ADRs)
+## 6. Architectural Decision Records
 
 ### ADR-001 — Kafka over REST Polling
 
@@ -280,6 +296,26 @@ SELECT flight_id, altitude, latitude, longitude, timestamp FROM telemetry ORDER 
 
 ---
 
+### ADR-006 — Raw WebSocket over STOMP
+
+**Status:** Accepted
+
+**Context:** Real-time alert delivery to browsers requires either raw WebSocket or STOMP (a messaging protocol layered on top of WebSocket). Spring Boot supports both.
+
+**Decision:** Raw WebSocket using `TextWebSocketHandler` registered at `/alerts`.
+
+**Consequences:**
+
+✅ Simpler implementation — no additional protocol overhead
+
+✅ Direct session management — `SocketConnectionHandler` tracks all connected browsers
+
+✅ No client-side STOMP library required — native browser WebSocket API works directly
+
+⚠️ Less structured than STOMP — no built-in topic subscriptions or message headers
+
+---
+
 ## 7. What I Learned
 
 ### Kafka
@@ -295,6 +331,9 @@ Standard relational databases store data in a flat table. As time-series data gr
 
 ### Redis
 Redis is an in-memory key-value store with built-in TTL. Setting a TTL means Redis deletes a key automatically after a specified duration. The TTL expiry IS the detection mechanism — no background cleanup code required.
+
+### WebSocket
+HTTP is request-response — the client always initiates. WebSocket is a persistent bidirectional connection — either side can send at any time. For real-time alert delivery this eliminates polling entirely. `TextWebSocketHandler` manages the session lifecycle. `WebSocketConfigurer` registers the handler at a URL. Connected sessions are stored in a `synchronizedList` to handle concurrent access.
 
 ### OAuth2 Client Credentials Flow
 OpenSky deprecated basic authentication in favour of OAuth2. Exchange `client_id` and `client_secret` for a Bearer token at the auth endpoint, then pass that token as `Authorization: Bearer {token}` on every API call. Tokens expire after 30 minutes.
@@ -319,7 +358,10 @@ OpenSky deprecated basic authentication in favour of OAuth2. Exchange `client_id
 | `Producer closed while send in progress` | Spring shut down before virtual threads finished sending | Added `Thread.currentThread().join()` to block main thread |
 | `opsForSet()` wrong Redis type | Confused Redis Set collection with simple key-value store | Changed to `opsForValue().set()` with TTL overload |
 | OpenSky library charset error | Library targets Java 7, incompatible with JDK 21+ | Bypassed library, used RestTemplate directly |
-| Port 8080 already in use | Consumer running on 8080 | Added `server.port: 8081` to OpenSky producer yml |
+| Port 8080 already in use | Docker Desktop uses port 8080 internally | Added `server.port: 8082` to consumer yml |
+| WebSocket browser disconnected | `alerts.html` pointed to wrong port (8080) | Updated WebSocket URL to `ws://localhost:8082/alerts` |
+| Git divergent branches on push | Local and remote had different commit histories | Used `git config pull.rebase false` then `git pull` |
+| opensky-api tracked as Git submodule | Cloned repo inside project was auto-detected as submodule | Removed with `git rm -r --cached opensky-api` |
 
 ---
 
@@ -328,7 +370,7 @@ OpenSky deprecated basic authentication in favour of OAuth2. Exchange `client_id
 - **Multiple Kafka Partitions** — Scale to 6 partitions with 3 parallel consumer instances to demonstrate partition-based horizontal scaling
 - **CQRS** — Separate read (Redis cache) and write (TimescaleDB) models for high-throughput query performance
 - **Event Sourcing** — Store every state change as an immutable event, enabling full flight history replay
-- **WebSocket Dashboard** — Real-time frontend showing live flight positions and alert notifications
 - **Testcontainers** — Integration tests that spin up real Kafka and TimescaleDB containers in CI
 - **Prometheus Metrics** — Expose message throughput, alert latency, and consumer lag metrics
 - **Kafka KRaft Mode** — Remove Zookeeper dependency using Kafka 4.0's built-in coordination
+- **Stripe Paywall** — Deploy as a SaaS product for small aviation operators at $49/month
