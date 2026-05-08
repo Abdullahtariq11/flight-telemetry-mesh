@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlightStream — Air Traffic Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #080c14;
+            --bg2: #0d1420;
+            --bg3: #111a2b;
+            --border: rgba(99,179,237,0.12);
+            --border-bright: rgba(99,179,237,0.3);
+            --text: #e2eaf4;
+            --text-dim: #6b84a3;
+            --text-dimmer: #3a4f6a;
+            --accent: #63b3ed;
+            --accent-glow: rgba(99,179,237,0.15);
+            --danger: #f56565;
+            --danger-glow: rgba(245,101,101,0.15);
+            --success: #48bb78;
+            --success-glow: rgba(72,187,120,0.12);
+            --warning: #ecc94b;
+            --mono: 'Space Mono', monospace;
+            --sans: 'DM Sans', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                    linear-gradient(rgba(99,179,237,0.03) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(99,179,237,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Radar sweep effect */
+        .radar-bg {
+            position: fixed;
+            top: -300px;
+            right: -300px;
+            width: 700px;
+            height: 700px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(99,179,237,0.04) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* HEADER */
+        header {
+            border-bottom: 1px solid var(--border);
+            background: rgba(8,12,20,0.8);
+            backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--accent-glow);
+            border: 1px solid var(--border-bright);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .logo-text {
+            font-family: var(--mono);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+        }
+
+        .logo-sub {
+            font-size: 11px;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 99px;
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            border: 1px solid;
+            transition: all 0.3s;
+        }
+
+        .status-pill.connected {
+            background: var(--success-glow);
+            border-color: rgba(72,187,120,0.3);
+            color: var(--success);
+        }
+
+        .status-pill.disconnected {
+            background: var(--danger-glow);
+            border-color: rgba(245,101,101,0.3);
+            color: var(--danger);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .status-pill.connected .status-dot {
+            animation: blink 1.5s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .live-time {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        /* STATS BAR */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1px;
+            background: var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stat-cell {
+            background: var(--bg);
+            padding: 20px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-dimmer);
+        }
+
+        .stat-value {
+            font-family: var(--mono);
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1;
+        }
+
+        .stat-value.danger { color: var(--danger); }
+        .stat-value.success { color: var(--success); }
+        .stat-value.accent { color: var(--accent); }
+
+        .stat-delta {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        /* MAIN GRID */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1px;
+            background: var(--border);
+            min-height: calc(100vh - 140px);
+        }
+
+        /* ALERTS PANEL */
+        .panel {
+            background: var(--bg);
+        }
+
+        .panel-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .panel-count {
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .alerts-list {
+            overflow-y: auto;
+            max-height: calc(100vh - 220px);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .alert-item {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            animation: slideIn 0.3s ease;
+            transition: border-color 0.2s;
+        }
+
+        .alert-item:hover {
+            border-color: var(--border-bright);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .alert-item.danger {
+            border-left: 3px solid var(--danger);
+            background: linear-gradient(to right, rgba(245,101,101,0.05), var(--bg2));
+        }
+
+        .alert-item.warning {
+            border-left: 3px solid var(--warning);
+            background: linear-gradient(to right, rgba(236,201,75,0.05), var(--bg2));
+        }
+
+        .alert-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+
+        .alert-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .alert-flight {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 3px;
+        }
+
+        .alert-detail {
+            font-size: 12px;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+
+        .alert-detail span {
+            color: var(--danger);
+            font-weight: 600;
+        }
+
+        .alert-time {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dimmer);
+            flex-shrink: 0;
+            margin-top: 3px;
+        }
+
+        /* FLIGHTS PANEL */
+        .flights-panel {
+            background: var(--bg);
+            border-left: 1px solid var(--border);
+        }
+
+        .flights-list {
+            overflow-y: auto;
+            max-height: calc(100vh - 220px);
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .flight-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            cursor: default;
+        }
+
+        .flight-row:hover {
+            background: var(--bg3);
+            border-color: var(--border);
+        }
+
+        .flight-row.alert-flight-row {
+            background: rgba(245,101,101,0.06);
+            border-color: rgba(245,101,101,0.2);
+        }
+
+        .flight-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .flight-indicator.ok { background: var(--success); }
+        .flight-indicator.alert { background: var(--danger); animation: blink 1s infinite; }
+
+        .flight-id {
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+            min-width: 64px;
+        }
+
+        .flight-status {
+            font-size: 11px;
+            color: var(--text-dim);
+            flex: 1;
+        }
+
+        .flight-status.alert-status { color: var(--danger); font-weight: 500; }
+
+        .flight-time {
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dimmer);
+        }
+
+        /* EMPTY STATE */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 24px;
+            gap: 12px;
+            color: var(--text-dimmer);
+        }
+
+        .empty-icon { font-size: 36px; opacity: 0.4; }
+        .empty-text { font-size: 13px; text-align: center; line-height: 1.6; }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+        /* BOTTOM BAR */
+        .bottom-bar {
+            border-top: 1px solid var(--border);
+            background: var(--bg);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: var(--mono);
+            font-size: 10px;
+            color: var(--text-dimmer);
+            letter-spacing: 0.06em;
+        }
+
+        .ticker {
+            overflow: hidden;
+            flex: 1;
+            margin: 0 24px;
+        }
+
+        .ticker-inner {
+            display: flex;
+            gap: 40px;
+            animation: ticker 20s linear infinite;
+            white-space: nowrap;
+        }
+
+        @keyframes ticker {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+        }
+
+        .ticker-item { color: var(--text-dim); }
+        .ticker-item.alert { color: var(--danger); }
+
+        /* CLEAR BTN */
+        .clear-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .clear-btn:hover {
+            border-color: var(--border-bright);
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+
+<div class="radar-bg"></div>
+
+<header>
+    <div class="header-inner">
+        <div class="logo">
+            <div class="logo-icon">✈</div>
+            <div>
+                <div class="logo-text">FLIGHTSTREAM</div>
+                <div class="logo-sub">Air Traffic Monitor</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="live-time" id="clock">--:--:--</div>
+            <div class="status-pill disconnected" id="statusPill">
+                <div class="status-dot"></div>
+                <span id="statusText">OFFLINE</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<div class="stats-bar">
+    <div class="stat-cell">
+        <div class="stat-label">Active Flights</div>
+        <div class="stat-value accent" id="statActive">0</div>
+        <div class="stat-delta">tracked this session</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Alerts Fired</div>
+        <div class="stat-value danger" id="statAlerts">0</div>
+        <div class="stat-delta">rapid descent events</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Messages Received</div>
+        <div class="stat-value" id="statMessages">0</div>
+        <div class="stat-delta">total telemetry events</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value success" id="statUptime">00:00</div>
+        <div class="stat-delta">since connection</div>
+    </div>
+</div>
+
+<div class="main-grid">
+
+    <!-- ALERTS PANEL -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-title">🚨 Safety Alerts</div>
+            <div style="display:flex;gap:10px;align-items:center">
+                <button class="clear-btn" onclick="clearAlerts()">CLEAR</button>
+                <div class="panel-count" id="alertCount">0 alerts</div>
+            </div>
+        </div>
+        <div class="alerts-list" id="alertsList">
+            <div class="empty-state">
+                <div class="empty-icon">📡</div>
+                <div class="empty-text">Monitoring active flights.<br>Safety alerts will appear here in real-time.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLIGHTS PANEL -->
+    <div class="flights-panel">
+        <div class="panel-header">
+            <div class="panel-title">✈ Active Flights</div>
+            <div class="panel-count" id="flightCount">0 flights</div>
+        </div>
+        <div class="flights-list" id="flightsList">
+            <div class="empty-state">
+                <div class="empty-icon">🛰</div>
+                <div class="empty-text">No flights detected yet.</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="bottom-bar">
+    <span>FLIGHTSTREAM v2.0</span>
+    <div class="ticker">
+        <div class="ticker-inner" id="ticker">
+            <span class="ticker-item">Connecting to ws://localhost:8082/alerts...</span>
+            <span class="ticker-item">Kafka → Spring Boot → WebSocket</span>
+            <span class="ticker-item">TimescaleDB persistence active</span>
+            <span class="ticker-item">Redis heartbeat monitor running</span>
+            <span class="ticker-item">Connecting to ws://localhost:8082/alerts...</span>
+            <span class="ticker-item">Kafka → Spring Boot → WebSocket</span>
+            <span class="ticker-item">TimescaleDB persistence active</span>
+            <span class="ticker-item">Redis heartbeat monitor running</span>
+        </div>
+    </div>
+    <span id="footerStatus">OFFLINE</span>
+</div>
+
+<script>
+    // STATE
+    let alertCount = 0;
+    let messageCount = 0;
+    let activeFlights = {};  // flightId -> { status, lastSeen, alertCount }
+    let connectionStart = null;
+    let uptimeInterval = null;
+    let hasAlerts = false;
+    let hasFlights = false;
+
+    // CLOCK
+    function updateClock() {
+        document.getElementById('clock').textContent =
+            new Date().toLocaleTimeString('en-US', { hour12: false });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // UPTIME
+    function updateUptime() {
+        if (!connectionStart) return;
+        const elapsed = Math.floor((Date.now() - connectionStart) / 1000);
+        const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const s = String(elapsed % 60).padStart(2, '0');
+        document.getElementById('statUptime').textContent = m + ':' + s;
+    }
+
+    // PARSE ALERT MESSAGE
+    // Format: "🚨 RAPID DESCENT ALERT,  Flight FL0497 dropped 8169.59 feet in 1 seconds"
+    function parseAlert(msg) {
+        const match = msg.match(/Flight\s+(\S+)\s+dropped\s+([\d.]+)\s+feet\s+in\s+(\d+)\s+seconds/);
+        if (match) {
+            return { flightId: match[1], drop: parseFloat(match[2]).toFixed(0), seconds: match[3] };
+        }
+        return null;
+    }
+
+    // ADD ALERT
+    function addAlert(msg) {
+        const parsed = parseAlert(msg);
+        const list = document.getElementById('alertsList');
+
+        // Remove empty state
+        if (!hasAlerts) {
+            list.innerHTML = '';
+            hasAlerts = true;
+        }
+
+        alertCount++;
+        document.getElementById('statAlerts').textContent = alertCount;
+        document.getElementById('alertCount').textContent = alertCount + ' alert' + (alertCount !== 1 ? 's' : '');
+
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+        const item = document.createElement('div');
+        item.className = 'alert-item danger';
+
+        if (parsed) {
+            item.innerHTML = `
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-body">
+          <div class="alert-flight">${parsed.flightId}</div>
+          <div class="alert-detail">Dropped <span>${Number(parsed.drop).toLocaleString()} ft</span> in ${parsed.seconds}s — RAPID DESCENT</div>
+        </div>
+        <div class="alert-time">${time}</div>
+      `;
+            // Mark flight as alert
+            if (activeFlights[parsed.flightId]) {
+                activeFlights[parsed.flightId].status = 'alert';
+                activeFlights[parsed.flightId].alertCount++;
+            }
+        } else {
+            item.innerHTML = `
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-body">
+          <div class="alert-flight">SYSTEM ALERT</div>
+          <div class="alert-detail">${msg}</div>
+        </div>
+        <div class="alert-time">${time}</div>
+      `;
+        }
+
+        list.prepend(item);
+        updateFlightsPanel();
+        updateTicker(parsed ? `🚨 ${parsed.flightId} RAPID DESCENT ${parsed.drop}ft` : msg);
+    }
+
+    // UPDATE FLIGHTS PANEL
+    function updateFlightsPanel() {
+        const list = document.getElementById('flightsList');
+        const flightIds = Object.keys(activeFlights);
+
+        if (flightIds.length === 0) return;
+
+        if (!hasFlights) {
+            list.innerHTML = '';
+            hasFlights = true;
+        }
+
+        list.innerHTML = '';
+        // Sort — alerts first, then by last seen
+        flightIds
+            .sort((a, b) => {
+                if (activeFlights[a].status === 'alert' && activeFlights[b].status !== 'alert') return -1;
+                if (activeFlights[b].status === 'alert' && activeFlights[a].status !== 'alert') return 1;
+                return activeFlights[b].lastSeen - activeFlights[a].lastSeen;
+            })
+            .slice(0, 60)  // show max 60
+            .forEach(id => {
+                const f = activeFlights[id];
+                const isAlert = f.status === 'alert';
+                const time = new Date(f.lastSeen).toLocaleTimeString('en-US', { hour12: false });
+                const row = document.createElement('div');
+                row.className = 'flight-row' + (isAlert ? ' alert-flight-row' : '');
+                row.innerHTML = `
+          <div class="flight-indicator ${isAlert ? 'alert' : 'ok'}"></div>
+          <div class="flight-id">${id}</div>
+          <div class="flight-status ${isAlert ? 'alert-status' : ''}">${isAlert ? `⚠ ${f.alertCount} alert${f.alertCount !== 1 ? 's' : ''}` : 'Nominal'}</div>
+          <div class="flight-time">${time}</div>
+        `;
+                list.appendChild(row);
+            });
+
+        document.getElementById('flightCount').textContent = flightIds.length + ' flight' + (flightIds.length !== 1 ? 's' : '');
+        document.getElementById('statActive').textContent = flightIds.length;
+    }
+
+    // UPDATE TICKER
+    function updateTicker(msg) {
+        const ticker = document.getElementById('ticker');
+        const span = document.createElement('span');
+        span.className = 'ticker-item alert';
+        span.textContent = msg;
+        ticker.appendChild(span.cloneNode(true)); // duplicate for loop
+        ticker.appendChild(span);
+    }
+
+    // CLEAR ALERTS
+    window.clearAlerts = function() {
+        document.getElementById('alertsList').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📡</div>
+        <div class="empty-text">Monitoring active flights.<br>Safety alerts will appear here in real-time.</div>
+      </div>`;
+        alertCount = 0;
+        hasAlerts = false;
+        document.getElementById('statAlerts').textContent = '0';
+        document.getElementById('alertCount').textContent = '0 alerts';
+        // Reset alert statuses
+        Object.keys(activeFlights).forEach(id => {
+            activeFlights[id].status = 'ok';
+            activeFlights[id].alertCount = 0;
+        });
+        updateFlightsPanel();
+    };
+
+    // WEBSOCKET
+    function connect() {
+        const ws = new WebSocket('ws://localhost:8082/alerts');
+
+        ws.onopen = () => {
+            const pill = document.getElementById('statusPill');
+            pill.className = 'status-pill connected';
+            document.getElementById('statusText').textContent = 'LIVE';
+            document.getElementById('footerStatus').textContent = 'CONNECTED';
+            connectionStart = Date.now();
+            uptimeInterval = setInterval(updateUptime, 1000);
+        };
+
+        ws.onclose = () => {
+            const pill = document.getElementById('statusPill');
+            pill.className = 'status-pill disconnected';
+            document.getElementById('statusText').textContent = 'OFFLINE';
+            document.getElementById('footerStatus').textContent = 'OFFLINE';
+            clearInterval(uptimeInterval);
+            // Reconnect after 3s
+            setTimeout(connect, 3000);
+        };
+
+        ws.onmessage = (event) => {
+            const msg = event.data.trim();
+            messageCount++;
+            document.getElementById('statMessages').textContent = messageCount;
+
+            if (msg.includes('RAPID DESCENT') || msg.includes('ALERT')) {
+                addAlert(msg);
+            } else {
+                // It's a normal flight telemetry message — treat as flight ID
+                const flightId = msg.trim();
+                if (flightId && flightId.length > 0) {
+                    if (!activeFlights[flightId]) {
+                        activeFlights[flightId] = { status: 'ok', lastSeen: Date.now(), alertCount: 0 };
+                    } else {
+                        activeFlights[flightId].lastSeen = Date.now();
+                        if (activeFlights[flightId].status === 'alert') {
+                            // Keep alert status, just update time
+                        } else {
+                            activeFlights[flightId].status = 'ok';
+                        }
+                    }
+                    // Refresh flights panel every 10 messages to avoid DOM thrash
+                    if (messageCount % 10 === 0) updateFlightsPanel();
+                }
+            }
+        };
+
+        ws.onerror = () => {
+            ws.close();
+        };
+    }
+
+    connect();
+</script>
+</body>
+</html>
